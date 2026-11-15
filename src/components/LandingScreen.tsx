@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Satellite, Users, Shapes, ArrowRight, Zap, Moon, Rocket, Mountain } from 'lucide-react';
+import { Satellite, Users, Shapes, ArrowRight, Zap, Moon, Rocket, Mountain, Clock, Ruler } from 'lucide-react';
 import type { MissionType, HabitatShape, MissionConfig } from '../types';
 import { MISSION_DEFS } from '../data';
 import type { LucideIcon } from 'lucide-react';
@@ -14,8 +14,19 @@ export default function LandingScreen({ onStart }: Props) {
   const [mission, setMission] = useState<MissionType>('orbital');
   const [crewSize, setCrewSize] = useState(4);
   const [shape, setShape] = useState<HabitatShape>('rectangle');
+  const [duration, setDuration] = useState(90);
+  const [dimsW, setDimsW] = useState(720);
+  const [dimsH, setDimsH] = useState(540);
 
   const selectedDef = MISSION_DEFS.find((m) => m.type === mission)!;
+
+  const handleMissionChange = (type: MissionType) => {
+    setMission(type);
+    const def = MISSION_DEFS.find((m) => m.type === type)!;
+    setDuration(def.defaultDuration);
+    setDimsW(def.defaultDims.w);
+    setDimsH(def.defaultDims.h);
+  };
 
   return (
     <div className="min-h-screen w-full bg-navy-950 starfield nebula overflow-y-auto">
@@ -27,7 +38,7 @@ export default function LandingScreen({ onStart }: Props) {
           </div>
           <div>
             <span className="text-lg font-bold text-white tracking-tight">HabitatOS</span>
-            <span className="text-xs text-cyan-glow/60 ml-2 font-mono">v1.0</span>
+            <span className="text-xs text-cyan-glow/60 ml-2 font-mono">v2.0</span>
           </div>
         </div>
         <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 font-mono">
@@ -63,7 +74,7 @@ export default function LandingScreen({ onStart }: Props) {
                 return (
                   <button
                     key={m.type}
-                    onClick={() => setMission(m.type)}
+                    onClick={() => handleMissionChange(m.type)}
                     className={`group relative rounded-xl p-4 text-left border transition-all duration-200 ${
                       active
                         ? 'border-cyan-glow bg-cyan-glow/10 shadow-lg shadow-cyan-glow/10'
@@ -85,7 +96,7 @@ export default function LandingScreen({ onStart }: Props) {
           </div>
 
           {/* Crew size + shape */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div>
               <label className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
                 <Users className="w-4 h-4 text-cyan-glow" /> Crew Size
@@ -126,9 +137,70 @@ export default function LandingScreen({ onStart }: Props) {
             </div>
           </div>
 
+          {/* Mission duration + habitat dimensions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div>
+              <label className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-cyan-glow" /> Mission Duration (days)
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={7}
+                  max={500}
+                  step={1}
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  className="flex-1 accent-cyan-glow"
+                />
+                <div className="w-20 text-center py-1.5 rounded-lg bg-navy-800 border border-cyan-glow/20 text-white font-mono text-base font-semibold">
+                  {duration}d
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1.5">
+                {duration > 90 ? 'Long-duration mission — additional safety rules apply' : 'Short-duration mission'}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                <Ruler className="w-4 h-4 text-cyan-glow" /> Habitat Dimensions (m)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={10}
+                  max={200}
+                  value={Math.round(dimsW / 10)}
+                  onChange={(e) => setDimsW(Number(e.target.value) * 10)}
+                  className="w-20 px-2 py-1.5 rounded-lg bg-navy-800 border border-cyan-glow/20 text-white font-mono text-sm text-center outline-none focus:border-cyan-glow/50"
+                />
+                <span className="text-slate-500 text-sm">×</span>
+                <input
+                  type="number"
+                  min={10}
+                  max={200}
+                  value={Math.round(dimsH / 10)}
+                  onChange={(e) => setDimsH(Number(e.target.value) * 10)}
+                  className="w-20 px-2 py-1.5 rounded-lg bg-navy-800 border border-cyan-glow/20 text-white font-mono text-sm text-center outline-none focus:border-cyan-glow/50"
+                />
+                <span className="text-[10px] text-slate-500 ml-1">m (1px = 0.1m)</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1.5">
+                Canvas: {dimsW}×{dimsH}px
+              </div>
+            </div>
+          </div>
+
           {/* Start */}
           <button
-            onClick={() => onStart({ type: mission, label: selectedDef.label, crewSize, shape })}
+            onClick={() => onStart({
+              type: mission,
+              label: selectedDef.label,
+              crewSize,
+              shape,
+              durationDays: duration,
+              dimensions: { w: dimsW, h: dimsH },
+            })}
             className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-glow to-blue-600 text-navy-950 font-bold text-sm tracking-wide flex items-center justify-center gap-2 hover:shadow-xl hover:shadow-cyan-glow/20 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
           >
             START DESIGNING
@@ -137,10 +209,9 @@ export default function LandingScreen({ onStart }: Props) {
         </div>
 
         <p className="text-center text-xs text-slate-500 mt-6 font-mono">
-          Frontend prototype · All data in-browser · No backend required
+          Frontend prototype · IndexedDB persistence · A* pathfinding · Acoustic decay model · Not NASA-certified
         </p>
       </div>
     </div>
   );
 }
-

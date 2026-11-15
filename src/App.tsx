@@ -26,8 +26,8 @@ export default function App() {
     setScreen('compare');
   };
 
-  const handleDeleteLayout = (id: string) => {
-    const updated = deleteStoredLayout(id);
+  const handleDeleteLayout = async (id: string) => {
+    const updated = await deleteStoredLayout(id);
     setSavedLayouts(updated);
   };
 

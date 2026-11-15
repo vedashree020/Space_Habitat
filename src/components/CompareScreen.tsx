@@ -33,7 +33,11 @@ export default function CompareScreen({ layouts, onBack, onDelete }: Props) {
 
   const chartData = [
     { metric: 'Health Score', A: layoutA.score, B: layoutB.score },
-    { metric: 'Conflicts', A: layoutA.conflictsCount, B: layoutB.conflictsCount },
+    { metric: 'Safety', A: layoutA.metrics?.safety ?? 0, B: layoutB.metrics?.safety ?? 0 },
+    { metric: 'Accessibility', A: layoutA.metrics?.accessibility ?? 0, B: layoutB.metrics?.accessibility ?? 0 },
+    { metric: 'Acoustic', A: layoutA.metrics?.acoustic ?? 0, B: layoutB.metrics?.acoustic ?? 0 },
+    { metric: 'Efficiency', A: layoutA.metrics?.efficiency ?? 0, B: layoutB.metrics?.efficiency ?? 0 },
+    { metric: 'Compliance', A: layoutA.metrics?.compliance ?? 0, B: layoutB.metrics?.compliance ?? 0 },
   ];
 
   return (
@@ -49,12 +53,12 @@ export default function CompareScreen({ layouts, onBack, onDelete }: Props) {
           </button>
           <h1 className="text-sm font-semibold text-white">Layout Comparison</h1>
         </div>
-        <span className="text-xs text-slate-500 font-mono">{layouts.length} saved layout(s)</span>
+        <span className="text-xs text-slate-500 font-mono">{layouts.length} saved layout(s) · IndexedDB</span>
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Layout selectors */}
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center gap-4 mb-6 flex-wrap">
           <LayoutSelector layouts={layouts} value={selA} onChange={setSelA} label="Layout A" color="#22d3ee" />
           <div className="text-slate-600 text-xl font-light">vs</div>
           <LayoutSelector layouts={layouts} value={selB} onChange={setSelB} label="Layout B" color="#a855f7" />
@@ -65,14 +69,14 @@ export default function CompareScreen({ layouts, onBack, onDelete }: Props) {
           <LayoutPreview layout={layoutB} accent="#a855f7" onDelete={() => onDelete(layoutB.id)} />
         </div>
 
-        {/* Bar chart */}
+        {/* Bar chart with all metrics */}
         <div className="glass rounded-xl p-5 mb-4">
-          <h3 className="text-sm font-semibold text-slate-300 mb-4">Score Comparison</h3>
-          <ResponsiveContainer width="100%" height={220}>
+          <h3 className="text-sm font-semibold text-slate-300 mb-4">Metric Comparison (all values from actual layout state)</h3>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(34,211,238,0.1)" />
-              <XAxis dataKey="metric" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+              <XAxis dataKey="metric" tick={{ fill: '#94a3b8', fontSize: 10 }} angle={-15} textAnchor="end" height={50} />
+              <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} />
               <RTooltip
                 contentStyle={{ background: '#0a1320', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '8px', fontSize: 12 }}
                 labelStyle={{ color: '#94a3b8' }}
@@ -92,6 +96,8 @@ export default function CompareScreen({ layouts, onBack, onDelete }: Props) {
               <tr className="border-b border-slate-700/50 text-slate-400">
                 <th className="text-left py-2 px-3 font-medium">Layout</th>
                 <th className="text-center py-2 px-3 font-medium">Score</th>
+                <th className="text-center py-2 px-3 font-medium">Safety</th>
+                <th className="text-center py-2 px-3 font-medium">Acoustic</th>
                 <th className="text-center py-2 px-3 font-medium">Conflicts</th>
                 <th className="text-center py-2 px-3 font-medium">Zones</th>
                 <th className="text-right py-2 px-3 font-medium">Mission</th>
@@ -106,6 +112,8 @@ export default function CompareScreen({ layouts, onBack, onDelete }: Props) {
                       {l.score}
                     </span>
                   </td>
+                  <td className="py-2.5 px-3 text-center text-slate-300">{l.metrics?.safety ?? '—'}</td>
+                  <td className="py-2.5 px-3 text-center text-slate-300">{l.metrics?.acoustic ?? '—'}</td>
                   <td className="py-2.5 px-3 text-center">
                     {l.conflictsCount === 0 ? (
                       <span className="text-status-ok flex items-center justify-center gap-1">

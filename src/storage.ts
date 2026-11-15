@@ -1,4 +1,4 @@
-import type { PlacedZone, MissionConfig } from './types';
+import type { PlacedZone, MissionConfig, ScoreMetrics, Conflict } from './types';
 import { ZONE_MAP } from './data';
 
 let idCounter = 0;
@@ -23,7 +23,7 @@ export function createZone(type: PlacedZone['type'], x: number, y: number): Plac
   };
 }
 
-export function getDemoLayout(config: MissionConfig): PlacedZone[] {
+export function getDemoLayout(_config: MissionConfig): PlacedZone[] {
   const zones: PlacedZone[] = [];
 
   // Sleep placed right next to Exercise (intentional conflict for demo)
@@ -42,11 +42,11 @@ export function getDemoLayout(config: MissionConfig): PlacedZone[] {
   return zones;
 }
 
-export function saveLayouts(layouts: PlacedZone[][]) {
-  // unused placeholder for compatibility
-}
+/* ───────────────────  IndexedDB persistence  ─────────────────── */
 
-const LAYOUT_KEY = 'habitatos-layouts';
+const DB_NAME = 'HabitatOS';
+const DB_VERSION = 1;
+const STORE_NAME = 'layouts';
 
 export interface StoredLayout {
   id: string;
@@ -54,29 +54,61 @@ export interface StoredLayout {
   zones: PlacedZone[];
   config: MissionConfig;
   score: number;
+  metrics: ScoreMetrics;
   conflictsCount: number;
   createdAt: number;
 }
 
-export function getStoredLayouts(): StoredLayout[] {
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+  });
+}
+
+export async function getStoredLayouts(): Promise<StoredLayout[]> {
   try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const results = (req.result as StoredLayout[]).sort((a, b) => b.createdAt - a.createdAt);
+        resolve(results);
+      };
+      req.onerror = () => reject(req.error);
+    });
   } catch {
     return [];
   }
 }
 
-export function storeLayout(layout: StoredLayout): StoredLayout[] {
-  const existing = getStoredLayouts();
-  const updated = [layout, ...existing].slice(0, 8);
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(updated));
-  return updated;
+export async function storeLayout(layout: StoredLayout): Promise<StoredLayout[]> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put(layout);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return getStoredLayouts();
 }
 
-export function deleteStoredLayout(id: string): StoredLayout[] {
-  const existing = getStoredLayouts().filter((l) => l.id !== id);
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(existing));
-  return existing;
+export async function deleteStoredLayout(id: string): Promise<StoredLayout[]> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return getStoredLayouts();
 }

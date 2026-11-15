@@ -12,12 +12,14 @@ export type ZoneType =
   | 'airlock'
   | 'life-support';
 
+export type RuleStatus = 'pass' | 'warn' | 'fail';
+
 export interface ZoneDef {
   type: ZoneType;
   label: string;
   color: string;
   icon: string;
-  noiseLevel: number; // 0-100
+  noiseLevel: number; // base noise dB at source
   minArea: number; // in grid cells
   defaultSize: { w: number; h: number };
 }
@@ -40,6 +42,8 @@ export interface MissionConfig {
   label: string;
   crewSize: number;
   shape: HabitatShape;
+  durationDays: number;
+  dimensions: { w: number; h: number };
 }
 
 export interface Conflict {
@@ -51,6 +55,28 @@ export interface Conflict {
   midY: number;
   reason: string;
   severity: 'high' | 'medium';
+  distance: number;
+  ruleId: string;
+}
+
+/** Adjacency matrix entry — which zone type pairs conflict and why */
+export interface AdjacencyRule {
+  a: ZoneType;
+  b: ZoneType;
+  reason: string;
+  severity: 'high' | 'medium';
+  maxDist: number;
+}
+
+/** Graph adjacency matrix: key = "typeA:typeB", value = rule */
+export type AdjacencyMatrix = Record<string, AdjacencyRule>;
+
+export interface EgressPath {
+  zoneId: string;
+  airlockId: string;
+  waypoints: { x: number; y: number }[];
+  pathLength: number;
+  hasExit: boolean;
 }
 
 export interface LayoutVersion {
@@ -75,7 +101,7 @@ export interface ScoreMetrics {
 export interface RuleCheck {
   id: string;
   label: string;
-  passed: boolean;
+  status: RuleStatus;
   detail: string;
 }
 
@@ -85,6 +111,12 @@ export interface SmartFix {
   zoneId: string;
   action: 'move' | 'add';
   detail: string;
+  targetType?: ZoneType;
+}
+
+export interface ScoreMethodology {
+  weights: { safety: number; accessibility: number; acoustic: number; efficiency: number; compliance: number };
+  factors: { metric: string; formula: string; value: number }[];
 }
 
 export type Screen = 'landing' | 'editor' | 'compare';

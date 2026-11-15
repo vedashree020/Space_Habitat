@@ -1,16 +1,17 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useMemo } from 'react';
 import { Stage, Layer, Rect, Line, Group, Text, Circle, Path } from 'react-konva';
 import type Konva from 'konva';
-import type { PlacedZone, Conflict, ZoneType, HabitatShape } from '../types';
-import { GRID_SIZE, CANVAS_W, CANVAS_H, ZONE_MAP } from '../data';
-import { ICONS } from '../icons';
-import { snapToGrid, getNearestAirlock, getNoExitZones } from '../analysis';
+import type { PlacedZone, Conflict, ZoneType, HabitatShape, EgressPath } from '../types';
+import { GRID_SIZE, CANVAS_W, CANVAS_H, ZONE_MAP, PATH_GRID_SIZE } from '../data';
+import { snapToGrid } from '../analysis';
 import { createZone } from '../storage';
+import { computeNoiseGrid } from '../analysis';
 
 interface Props {
   zones: PlacedZone[];
   setZones: (z: PlacedZone[]) => void;
   conflicts: Conflict[];
+  egressPaths: EgressPath[];
   showHeatmap: boolean;
   showEgress: boolean;
   shape: HabitatShape;
@@ -19,11 +20,14 @@ interface Props {
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   canvasRef: React.RefObject<HTMLDivElement>;
+  highlightedZoneIds: Set<string>;
+  onConflictClick: (conflict: Conflict) => void;
 }
 
 export default function HabitatCanvas({
-  zones, setZones, conflicts, showHeatmap, showEgress, shape,
+  zones, setZones, conflicts, egressPaths, showHeatmap, showEgress, shape,
   selectedTool, onSelectTool, selectedId, setSelectedId, canvasRef,
+  highlightedZoneIds, onConflictClick,
 }: Props) {
   const stageRef = useRef<Konva.Stage>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -31,7 +35,6 @@ export default function HabitatCanvas({
 
   const handleStageClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (!selectedTool) return;
-    // Only place on empty stage (not on a zone)
     const target = e.target;
     if (target.attrs.nodeType === 'zone-group' || target.parent?.attrs.nodeType === 'zone-group') return;
     const stage = stageRef.current;
@@ -60,6 +63,7 @@ export default function HabitatCanvas({
     setZones(zones.map((z) => (z.id === id ? { ...z, x, y } : z)));
     setDraggingId(null);
   };
+
   const handleResizeStart = (id: string, corner: string, e: Konva.KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
     e.evt.preventDefault();
@@ -84,18 +88,18 @@ export default function HabitatCanvas({
     } else if (resizing.corner === 'bl') {
       const newX = snapToGrid(pos.x);
       width = Math.max(minW, snapToGrid(x + width - newX));
-      x = x + width < minW + x ? x : newX;
+      if (x + width >= minW + x) x = newX;
     } else if (resizing.corner === 'tr') {
       const newY = snapToGrid(pos.y);
       height = Math.max(minH, snapToGrid(y + height - newY));
-      y = y + height < minH + y ? y : newY;
+      if (y + height >= minH + y) y = newY;
     } else if (resizing.corner === 'tl') {
       const newX = snapToGrid(pos.x);
       const newY = snapToGrid(pos.y);
       width = Math.max(minW, snapToGrid(x + width - newX));
       height = Math.max(minH, snapToGrid(y + height - newY));
-      x = x + width < minW + x ? x : newX;
-      y = y + height < minH + y ? y : newY;
+      if (x + width >= minW + x) x = newX;
+      if (y + height >= minH + y) y = newY;
     }
     width = Math.min(width, CANVAS_W - x);
     height = Math.min(height, CANVAS_H - y);
@@ -111,8 +115,19 @@ export default function HabitatCanvas({
     setSelectedId(null);
   };
 
-  const noExitZones = getNoExitZones(zones);
-  const noExitIds = new Set(noExitZones.map((z) => z.id));
+  // Compute noise grid for dynamic heatmap (memoized on zones + showHeatmap)
+  const noiseGrid = useMemo(() => {
+    if (!showHeatmap) return [];
+    return computeNoiseGrid(zones, CANVAS_W, CANVAS_H, PATH_GRID_SIZE * 2);
+  }, [zones, showHeatmap]);
+
+  const noExitIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of egressPaths) {
+      if (!p.hasExit) ids.add(p.zoneId);
+    }
+    return ids;
+  }, [egressPaths]);
 
   const renderHabitatOutline = () => {
     if (shape === 'rectangle') {
@@ -126,18 +141,15 @@ export default function HabitatCanvas({
         </>
       );
     }
-    // L-shape
     return (
-      <>
-        <Line
-          points={[0, 0, 380, 0, 380, 200, CANVAS_W, 200, CANVAS_W, CANVAS_H, 0, CANVAS_H]}
-          closed
-          stroke="#22d3ee"
-          strokeWidth={2}
-          dash={[8, 4]}
-          fill="rgba(34,211,238,0.02)"
-        />
-      </>
+      <Line
+        points={[0, 0, 380, 0, 380, 200, CANVAS_W, 200, CANVAS_W, CANVAS_H, 0, CANVAS_H]}
+        closed
+        stroke="#22d3ee"
+        strokeWidth={2}
+        dash={[8, 4]}
+        fill="rgba(34,211,238,0.02)"
+      />
     );
   };
 
@@ -152,28 +164,35 @@ export default function HabitatCanvas({
     return <>{lines}</>;
   };
 
+  // Dynamic heatmap from acoustic decay model — noise values at sampled grid points
   const renderHeatmap = () => {
-    return zones.map((z) => {
-      const cx = z.x + z.width / 2;
-      const cy = z.y + z.height / 2;
-      const radius = 80 + z.noiseLevel * 1.2;
-      const isLoud = z.noiseLevel > 60;
-      const color = isLoud ? '#ef4444' : z.noiseLevel > 40 ? '#f59e0b' : '#22c55e';
+    return noiseGrid.map((cell, i) => {
+      const noise = cell.noise;
+      // Map noise (0-120) to color: green -> amber -> red
+      let color: string;
+      if (noise < 30) color = '#22c55e';
+      else if (noise < 50) color = '#84cc16';
+      else if (noise < 70) color = '#f59e0b';
+      else color = '#ef4444';
+
+      const opacity = Math.min(0.35, noise / 200);
+      const radius = PATH_GRID_SIZE * 1.5;
+
       return (
         <Circle
-          key={`heat-${z.id}`}
-          x={cx}
-          y={cy}
+          key={`heat-${i}`}
+          x={cell.x}
+          y={cell.y}
           radius={radius}
           listening={false}
-          opacity={0.18}
-          fillRadialGradientStartPoint={{ x: cx, y: cy }}
+          opacity={opacity}
+          fillRadialGradientStartPoint={{ x: cell.x, y: cell.y }}
           fillRadialGradientStartRadius={0}
-          fillRadialGradientEndPoint={{ x: cx, y: cy }}
+          fillRadialGradientEndPoint={{ x: cell.x, y: cell.y }}
           fillRadialGradientEndRadius={radius}
           fillRadialGradientColorStops={[
-            0, `${color}cc`,
-            0.5, `${color}44`,
+            0, `${color}aa`,
+            0.6, `${color}33`,
             1, `${color}00`,
           ]}
         />
@@ -181,68 +200,101 @@ export default function HabitatCanvas({
     });
   };
 
+  // A* egress paths — render actual computed waypoints
   const renderEgress = () => {
-    const airlocks = zones.filter((z) => z.type === 'airlock');
-    if (airlocks.length === 0) return null;
-    const lines: React.ReactNode[] = [];
-    zones.forEach((z) => {
-      if (z.type === 'airlock') return;
-      const nearest = getNearestAirlock(z, zones);
-      if (!nearest) return;
-      const zx = z.x + z.width / 2;
-      const zy = z.y + z.height / 2;
-      const ax = nearest.x + nearest.width / 2;
-      const ay = nearest.y + nearest.height / 2;
-      const isNoExit = noExitIds.has(z.id);
-      lines.push(
+    return egressPaths.map((p) => {
+      if (p.waypoints.length < 2) {
+        // No exit — render red indicator at zone center
+        const zone = zones.find((z) => z.id === p.zoneId);
+        if (!zone) return null;
+        return (
+          <Group key={`egress-${p.zoneId}`} listening={false}>
+            <Circle
+              x={zone.x + zone.width / 2}
+              y={zone.y + zone.height / 2}
+              radius={6}
+              fill="#ef4444"
+              opacity={0.8}
+            />
+          </Group>
+        );
+      }
+      const points: number[] = [];
+      for (const wp of p.waypoints) {
+        points.push(wp.x, wp.y);
+      }
+      const isNoExit = !p.hasExit;
+      return (
         <Line
-          key={`egress-${z.id}`}
-          points={[zx, zy, ax, ay]}
+          key={`egress-${p.zoneId}`}
+          points={points}
           stroke={isNoExit ? '#ef4444' : '#84cc16'}
           strokeWidth={2}
           dash={[6, 4]}
-          opacity={0.7}
+          opacity={0.75}
           listening={false}
+          tension={0.2}
         />
       );
     });
-    return lines;
   };
 
+  // Clickable conflict markers
   const renderConflicts = () => {
-    return conflicts.map((c, i) => (
-      <Group key={`conf-${i}`} listening={false}>
-        <Circle x={c.midX} y={c.midY} radius={14} fill="#ef4444" opacity={0.9} />
-        <Text
-          x={c.midX - 6}
-          y={c.midY - 7}
-          text="!"
-          fontSize={16}
-          fontStyle="bold"
-          fill="#fff"
-          align="center"
-          width={12}
-        />
-      </Group>
-    ));
+    return conflicts.map((c, i) => {
+      const isHighlighted = highlightedZoneIds.has(c.zoneA) && highlightedZoneIds.has(c.zoneB);
+      return (
+        <Group
+          key={`conf-${i}`}
+          x={c.midX}
+          y={c.midY}
+          onClick={() => onConflictClick(c)}
+          onTap={() => onConflictClick(c)}
+          style={{ cursor: 'pointer' }}
+        >
+          <Circle
+            radius={isHighlighted ? 18 : 14}
+            fill={c.severity === 'high' ? '#ef4444' : '#f59e0b'}
+            opacity={0.9}
+            stroke={isHighlighted ? '#22d3ee' : 'rgba(255,255,255,0.3)'}
+            strokeWidth={isHighlighted ? 3 : 1}
+            shadowColor={c.severity === 'high' ? '#ef4444' : '#f59e0b'}
+            shadowBlur={isHighlighted ? 12 : 4}
+          />
+          <Text
+            x={-6}
+            y={-7}
+            text="!"
+            fontSize={16}
+            fontStyle="bold"
+            fill="#fff"
+            align="center"
+            width={12}
+            listening={false}
+          />
+        </Group>
+      );
+    });
   };
 
   const renderNoExitTags = () => {
-    return noExitZones.map((z) => (
-      <Group key={`noexit-${z.id}`} listening={false}>
-        <Rect x={z.x + z.width / 2 - 40} y={z.y - 8} width={80} height={16} fill="#ef4444" cornerRadius={3} />
-        <Text
-          x={z.x + z.width / 2 - 40}
-          y={z.y - 6}
-          text="NO EXIT ROUTE"
-          fontSize={9}
-          fontStyle="bold"
-          fill="#fff"
-          align="center"
-          width={80}
-        />
-      </Group>
-    ));
+    return zones
+      .filter((z) => noExitIds.has(z.id))
+      .map((z) => (
+        <Group key={`noexit-${z.id}`} listening={false}>
+          <Rect x={z.x + z.width / 2 - 45} y={z.y - 10} width={90} height={18} fill="#ef4444" cornerRadius={3} />
+          <Text
+            x={z.x + z.width / 2 - 45}
+            y={z.y - 8}
+            text="NO EXIT ROUTE"
+            fontSize={9}
+            fontStyle="bold"
+            fill="#fff"
+            align="center"
+            width={90}
+          />
+        </Group>
+      ));
   };
 
   return (
@@ -277,9 +329,9 @@ export default function HabitatCanvas({
                 zone={z}
                 isSelected={selectedId === z.id}
                 isDragging={draggingId === z.id}
-                showNoExit={showEgress && noExitIds.has(z.id)}
+                isHighlighted={highlightedZoneIds.has(z.id)}
                 onDragStart={() => { setDraggingId(z.id); setSelectedId(z.id); }}
-                onDragMove={(e) => handleDragMove(e, z.id)}
+                onDragMove={handleDragMove}
                 onDragEnd={(e) => handleDragEnd(z.id, e)}
                 onSelect={() => setSelectedId(z.id)}
                 onResizeStart={(corner, e) => handleResizeStart(z.id, corner, e)}
@@ -300,7 +352,7 @@ interface ZoneShapeProps {
   zone: PlacedZone;
   isSelected: boolean;
   isDragging: boolean;
-  showNoExit: boolean;
+  isHighlighted: boolean;
   onDragStart: () => void;
   onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
@@ -309,9 +361,8 @@ interface ZoneShapeProps {
   onDelete: () => void;
 }
 
-function ZoneShape({ zone, isSelected, onDragStart, onDragMove, onDragEnd, onSelect, onResizeStart, onDelete }: ZoneShapeProps) {
+function ZoneShape({ zone, isSelected, isHighlighted, onDragStart, onDragMove, onDragEnd, onSelect, onResizeStart, onDelete }: ZoneShapeProps) {
   const def = ZONE_MAP[zone.type];
-  const Icon = ICONS[def.icon];
 
   return (
     <Group
@@ -328,14 +379,13 @@ function ZoneShape({ zone, isSelected, onDragStart, onDragMove, onDragEnd, onSel
         width={zone.width}
         height={zone.height}
         fill={`${zone.color}22`}
-        stroke={zone.color}
-        strokeWidth={isSelected ? 2.5 : 1.5}
+        stroke={isHighlighted ? '#22d3ee' : zone.color}
+        strokeWidth={isSelected ? 2.5 : isHighlighted ? 3 : 1.5}
         cornerRadius={6}
-        shadowColor={zone.color}
-        shadowBlur={isSelected ? 12 : 4}
-        shadowOpacity={0.3}
+        shadowColor={isHighlighted ? '#22d3ee' : zone.color}
+        shadowBlur={isSelected || isHighlighted ? 14 : 4}
+        shadowOpacity={0.4}
       />
-      {/* Icon area */}
       <Rect x={4} y={4} width={28} height={28} fill={`${zone.color}30`} cornerRadius={4} />
       <Path
         data={getIconPath(def.icon)}
@@ -344,7 +394,6 @@ function ZoneShape({ zone, isSelected, onDragStart, onDragMove, onDragEnd, onSel
         fill={zone.color}
         scale={{ x: 0.9, y: 0.9 }}
       />
-      {/* Label */}
       <Text
         text={zone.label}
         x={36}
@@ -365,7 +414,6 @@ function ZoneShape({ zone, isSelected, onDragStart, onDragMove, onDragEnd, onSel
         fill="#64748b"
       />
 
-      {/* Resize handles */}
       {isSelected && (
         <>
           {(['tl', 'tr', 'bl', 'br'] as const).map((corner) => {
@@ -390,7 +438,6 @@ function ZoneShape({ zone, isSelected, onDragStart, onDragMove, onDragEnd, onSel
               />
             );
           })}
-          {/* Delete button */}
           <Group x={zone.width - 24} y={zone.height - 24} onMouseDown={(e) => { e.cancelBubble = true; e.evt.preventDefault(); onDelete(); }}>
             <Rect width={20} height={20} fill="#ef4444" cornerRadius={4} />
             <Text text="x" x={6} y={3} fontSize={13} fontStyle="bold" fill="#fff" />
@@ -406,9 +453,7 @@ function getResizeCursor(corner: string): string {
   return 'nesw-resize';
 }
 
-// Simple SVG path placeholders for zone icons on Konva canvas
 function getIconPath(icon: string): string {
-  // Use a generic square-with-circle as a simple visual marker since Konva can't render React icons
   const paths: Record<string, string> = {
     BedDouble: 'M2 18v-8h20v8M2 14h20M6 10V6h12v4',
     Dumbbell: 'M4 12h16M2 8v8M6 6v12M18 6v12M22 8v8',
