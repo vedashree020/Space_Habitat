@@ -4,13 +4,13 @@ import {
   Trash2, Info, Sparkles, Crosshair,
 } from 'lucide-react';
 import type { PlacedZone, MissionConfig, Conflict, ZoneType, EgressPath } from '../types';
-import { CANVAS_W, CANVAS_H, ZONE_MAP, PATH_GRID_SIZE } from '../data';
+import { CANVAS_W, CANVAS_H, ZONE_MAP, PATH_GRID_SIZE, GRID_SIZE } from '../data';
 import {
   detectConflicts, calcMetrics, calcScore, checkRules, generateSmartFixes,
-  snapToGrid, computeEgressPaths, findBestRelocation, findFreeSpot,
+  computeEgressPaths, findBestRelocation, findFreeSpot,
   getScoreMethodology,
 } from '../analysis';
-import { createZone, storeLayout, type StoredLayout } from '../storage';
+import { createZone, getStoredLayouts, storeLayout, type StoredLayout } from '../storage';
 import { Tooltip } from './Tooltip';
 import ZonePalette from './ZonePalette';
 import HabitatCanvas from './HabitatCanvas';
@@ -43,9 +43,8 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
 
   // A* egress paths — recomputed when zones or egress toggle change
   const egressPaths: EgressPath[] = useMemo(() => {
-    if (!showEgress) return [];
     return computeEgressPaths(zones, CANVAS_W, CANVAS_H, PATH_GRID_SIZE);
-  }, [zones, showEgress]);
+  }, [zones]);
 
   // Metrics from actual state
   const metrics = useMemo(() => calcMetrics(zones, config, conflicts, egressPaths), [zones, config, conflicts, egressPaths]);
@@ -97,7 +96,7 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
   }, []);
 
   const handleSave = async () => {
-    const existing = await import('../storage').then((m) => m.getStoredLayouts());
+    const existing = await getStoredLayouts();
     const name = LAYOUT_NAMES[existing.length % LAYOUT_NAMES.length];
     const layout: StoredLayout = {
       id: `layout-${Date.now()}`,

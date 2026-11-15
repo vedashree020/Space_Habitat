@@ -1,8 +1,8 @@
 import type {
   PlacedZone, Conflict, ScoreMetrics, RuleCheck, SmartFix, MissionConfig,
-  EgressPath, ScoreMethodology, HabitatShape,
+  EgressPath, ScoreMethodology, ZoneType,
 } from './types';
-import { CONFLICT_RULES, GRID_SIZE, getConflictRule, ALL_ZONE_TYPES } from './data';
+import { GRID_SIZE, getConflictRule } from './data';
 
 /* ─────────────────────────  Geometry helpers  ───────────────────────── */
 
@@ -423,9 +423,7 @@ export function calcMetrics(
   egressPaths: EgressPath[],
 ): ScoreMetrics {
   const types = new Set(zones.map((z) => z.type));
-  const hasAirlock = types.has('airlock');
   const hasCommand = types.has('command');
-  const hasSleep = types.has('sleep');
 
   const highConflicts = conflicts.filter((c) => c.severity === 'high').length;
   const medConflicts = conflicts.filter((c) => c.severity === 'medium').length;

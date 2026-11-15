@@ -1,4 +1,4 @@
-import type { PlacedZone, MissionConfig, ScoreMetrics, Conflict } from './types';
+import type { PlacedZone, MissionConfig, ScoreMetrics } from './types';
 import { ZONE_MAP } from './data';
 
 let idCounter = 0;
@@ -23,7 +23,8 @@ export function createZone(type: PlacedZone['type'], x: number, y: number): Plac
   };
 }
 
-export function getDemoLayout(_config: MissionConfig): PlacedZone[] {
+export function getDemoLayout(config: MissionConfig): PlacedZone[] {
+  void config;
   const zones: PlacedZone[] = [];
 
   // Sleep placed right next to Exercise (intentional conflict for demo)

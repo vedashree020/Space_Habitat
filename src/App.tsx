@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MissionConfig, PlacedZone, Screen } from './types';
-import { getDemoLayout, deleteStoredLayout, type StoredLayout } from './storage';
+import { getDemoLayout, getStoredLayouts, deleteStoredLayout, type StoredLayout } from './storage';
 import LandingScreen from './components/LandingScreen';
 import EditorScreen from './components/EditorScreen';
 import CompareScreen from './components/CompareScreen';
@@ -10,6 +10,10 @@ export default function App() {
   const [config, setConfig] = useState<MissionConfig | null>(null);
   const [zones, setZones] = useState<PlacedZone[]>([]);
   const [savedLayouts, setSavedLayouts] = useState<StoredLayout[]>([]);
+
+  useEffect(() => {
+    void getStoredLayouts().then(setSavedLayouts);
+  }, []);
 
   const handleStart = (cfg: MissionConfig) => {
     setConfig(cfg);
