@@ -124,10 +124,10 @@ export default function LandingScreen({ onStart }: Props) {
                   <button
                     key={s}
                     onClick={() => setShape(s)}
-                    className={`py-2.5 rounded-lg text-xs font-medium border transition-all ${
+                    className={`py-2.5 rounded-lg text-xs border transition-all ${
                       shape === s
-                        ? 'border-cyan-glow bg-cyan-glow/10 text-cyan-glow'
-                        : 'border-slate-700/50 bg-navy-800/50 text-slate-400 hover:text-white hover:border-slate-500'
+                        ? 'font-bold border-cyan-glow bg-cyan-glow/10 text-cyan-glow'
+                        : 'font-medium border-slate-700/50 bg-navy-800/50 text-slate-400 hover:text-white hover:border-slate-500'
                     }`}
                   >
                     {s === 'rectangle' ? 'Rectangle' : s === 'circle' ? 'Circle' : 'L-Shape'}
