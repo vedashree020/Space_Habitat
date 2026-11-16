@@ -79,6 +79,19 @@ export interface EgressPath {
   hasExit: boolean;
 }
 
+export type HabitatWallSide = 'north' | 'east' | 'south' | 'west';
+
+export interface RadiationSegment {
+  id: string;
+  side: HabitatWallSide;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  exposure: number;
+  shielding: number;
+}
+
 export interface LayoutVersion {
   id: string;
   name: string;

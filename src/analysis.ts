@@ -1,6 +1,6 @@
 import type {
   PlacedZone, Conflict, ScoreMetrics, RuleCheck, SmartFix, MissionConfig,
-  EgressPath, ScoreMethodology, ZoneType,
+  EgressPath, ScoreMethodology, ZoneType, MissionType, HabitatShape, RadiationSegment,
 } from './types';
 import { GRID_SIZE, getConflictRule } from './data';
 
@@ -157,6 +157,71 @@ export function computeNoiseGrid(zones: PlacedZone[], width: number, height: num
     }
   }
   return grid;
+}
+
+/* ─────────────────────  Solar radiation wall exposure  ──────────────── */
+
+const RADIATION_SEGMENT_SIZE = 40;
+const RADIATION_BASE_BY_MISSION: Record<MissionType, number> = {
+  lunar: 82,
+  'mars-transit': 96,
+  'mars-surface': 68,
+  orbital: 58,
+};
+
+const SHIELDING_STRENGTH: Partial<Record<ZoneType, number>> = {
+  storage: 0.22,
+  'life-support': 0.2,
+  medical: 0.16,
+  lab: 0.14,
+  command: 0.12,
+};
+
+/**
+ * Estimate wall exposure from mission environment, wall orientation, duration,
+ * and nearby mass. This is a visualization model, not a dose calculation.
+ */
+export function computeRadiationExposure(
+  zones: PlacedZone[],
+  missionType: MissionType,
+  durationDays: number,
+  shape: HabitatShape,
+  width: number,
+  height: number,
+): RadiationSegment[] {
+  const base = RADIATION_BASE_BY_MISSION[missionType] * Math.min(1.25, Math.max(0.75, durationDays / 180));
+  const sides: { side: RadiationSegment['side']; count: number; horizontal: boolean; directionFactor: number }[] = [
+    { side: 'north', count: Math.ceil(width / RADIATION_SEGMENT_SIZE), horizontal: true, directionFactor: 1 },
+    { side: 'east', count: Math.ceil(height / RADIATION_SEGMENT_SIZE), horizontal: false, directionFactor: 0.86 },
+    { side: 'south', count: Math.ceil(width / RADIATION_SEGMENT_SIZE), horizontal: true, directionFactor: 0.72 },
+    { side: 'west', count: Math.ceil(height / RADIATION_SEGMENT_SIZE), horizontal: false, directionFactor: 0.92 },
+  ];
+
+  return sides.flatMap(({ side, count, horizontal, directionFactor }) => Array.from({ length: count }, (_, index) => {
+    const length = horizontal ? Math.min(RADIATION_SEGMENT_SIZE, width - index * RADIATION_SEGMENT_SIZE) : Math.min(RADIATION_SEGMENT_SIZE, height - index * RADIATION_SEGMENT_SIZE);
+    const x = horizontal ? index * RADIATION_SEGMENT_SIZE : side === 'east' ? width - 8 : 0;
+    const y = horizontal ? side === 'south' ? height - 8 : 0 : index * RADIATION_SEGMENT_SIZE;
+    const midpoint = { x: x + (horizontal ? length / 2 : 4), y: y + (horizontal ? 4 : length / 2) };
+    const shielding = zones.reduce((total, zone) => {
+      const strength = SHIELDING_STRENGTH[zone.type] ?? 0.06;
+      const zoneCenter = { x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 };
+      const distance = Math.hypot(zoneCenter.x - midpoint.x, zoneCenter.y - midpoint.y);
+      return total + (distance < 110 ? strength * (1 - distance / 140) : 0);
+    }, 0);
+    const shapeFactor = shape === 'circle' ? 0.92 : shape === 'l-shape' && side === 'north' ? 0.82 : 1;
+    const boundedShielding = Math.min(0.65, Math.max(0, shielding));
+    const exposure = Math.round(Math.min(100, Math.max(0, base * directionFactor * shapeFactor * (1 - boundedShielding))));
+    return {
+      id: `radiation-${side}-${index}`,
+      side,
+      x,
+      y,
+      width: horizontal ? length : 8,
+      height: horizontal ? 8 : length,
+      exposure,
+      shielding: Math.round(boundedShielding * 100),
+    };
+  }));
 }
 
 /* ─────────────────────────  A* Pathfinding  ────────────────────────── */

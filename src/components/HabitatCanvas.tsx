@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useMemo } from 'react';
 import { Stage, Layer, Rect, Line, Group, Text, Circle, Path } from 'react-konva';
 import type Konva from 'konva';
-import type { PlacedZone, Conflict, ZoneType, HabitatShape, EgressPath } from '../types';
+import type { PlacedZone, Conflict, ZoneType, HabitatShape, EgressPath, RadiationSegment } from '../types';
 import { GRID_SIZE, CANVAS_W, CANVAS_H, ZONE_MAP, PATH_GRID_SIZE } from '../data';
 import { snapToGrid } from '../analysis';
 import { createZone } from '../storage';
@@ -14,6 +14,8 @@ interface Props {
   egressPaths: EgressPath[];
   showHeatmap: boolean;
   showEgress: boolean;
+  showRadiation: boolean;
+  radiationSegments: RadiationSegment[];
   shape: HabitatShape;
   selectedTool: ZoneType | null;
   onSelectTool: (t: ZoneType | null) => void;
@@ -25,7 +27,7 @@ interface Props {
 }
 
 export default function HabitatCanvas({
-  zones, setZones, conflicts, egressPaths, showHeatmap, showEgress, shape,
+  zones, setZones, conflicts, egressPaths, showHeatmap, showEgress, showRadiation, radiationSegments, shape,
   selectedTool, onSelectTool, selectedId, setSelectedId, canvasRef,
   highlightedZoneIds, onConflictClick,
 }: Props) {
@@ -200,6 +202,32 @@ export default function HabitatCanvas({
     });
   };
 
+  const renderRadiation = () => {
+    return radiationSegments.map((segment) => {
+      const color = segment.exposure >= 80 ? '#ef4444' : segment.exposure >= 60 ? '#f59e0b' : segment.exposure >= 35 ? '#eab308' : '#22c55e';
+      return (
+        <Group key={segment.id} listening={false}>
+          <Rect
+            x={segment.x}
+            y={segment.y}
+            width={segment.width}
+            height={segment.height}
+            fill={color}
+            opacity={0.32 + segment.exposure / 400}
+          />
+          <Rect
+            x={segment.x + (segment.width > segment.height ? 0 : 2)}
+            y={segment.y + (segment.width > segment.height ? 2 : 0)}
+            width={segment.width > segment.height ? segment.width : 4}
+            height={segment.width > segment.height ? 4 : segment.height}
+            fill={color}
+            opacity={0.78}
+          />
+        </Group>
+      );
+    });
+  };
+
   // A* egress paths — render actual computed waypoints
   const renderEgress = () => {
     return egressPaths.map((p) => {
@@ -323,6 +351,7 @@ export default function HabitatCanvas({
             {renderGrid()}
             {renderHabitatOutline()}
             {showHeatmap && renderHeatmap()}
+            {showRadiation && renderRadiation()}
             {zones.map((z) => (
               <ZoneShape
                 key={z.id}

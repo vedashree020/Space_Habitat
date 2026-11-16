@@ -1,13 +1,13 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   Satellite, Save, FileDown, FileJson, Thermometer, Route, Grid3x3,
-  Trash2, Info, Sparkles, Crosshair,
+  Trash2, Info, Sparkles, Crosshair, ShieldAlert,
 } from 'lucide-react';
 import type { PlacedZone, MissionConfig, Conflict, ZoneType, EgressPath } from '../types';
 import { CANVAS_W, CANVAS_H, ZONE_MAP, PATH_GRID_SIZE, GRID_SIZE } from '../data';
 import {
   detectConflicts, calcMetrics, calcScore, checkRules, generateSmartFixes,
-  computeEgressPaths, findBestRelocation, findFreeSpot,
+  computeEgressPaths, computeRadiationExposure, findBestRelocation, findFreeSpot,
   getScoreMethodology,
 } from '../analysis';
 import { createZone, getStoredLayouts, storeLayout, type StoredLayout } from '../storage';
@@ -31,6 +31,7 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showEgress, setShowEgress] = useState(false);
+  const [showRadiation, setShowRadiation] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [savedFlash, setSavedFlash] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -45,6 +46,15 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
   const egressPaths: EgressPath[] = useMemo(() => {
     return computeEgressPaths(zones, CANVAS_W, CANVAS_H, PATH_GRID_SIZE);
   }, [zones]);
+
+  const radiationSegments = useMemo(() => computeRadiationExposure(
+    zones,
+    config.type,
+    config.durationDays,
+    config.shape,
+    CANVAS_W,
+    CANVAS_H,
+  ), [zones, config]);
 
   // Metrics from actual state
   const metrics = useMemo(() => calcMetrics(zones, config, conflicts, egressPaths), [zones, config, conflicts, egressPaths]);
@@ -323,6 +333,7 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
         <div className="flex items-center gap-2">
           <ViewToggle active={showHeatmap} onClick={() => setShowHeatmap(!showHeatmap)} icon={Thermometer} label="Heatmap" tooltip="Toggle acoustic noise heatmap (inverse-distance decay model)" />
           <ViewToggle active={showEgress} onClick={() => setShowEgress(!showEgress)} icon={Route} label="Egress" tooltip="Toggle A* emergency egress routes to nearest airlock" />
+          <ViewToggle active={showRadiation} onClick={() => setShowRadiation(!showRadiation)} icon={ShieldAlert} label="Radiation" tooltip="Simplified external radiation exposure estimate across habitat walls" />
 
           <div className="h-5 w-px bg-slate-700/50 mx-1" />
 
@@ -401,6 +412,8 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
                 egressPaths={egressPaths}
                 showHeatmap={showHeatmap}
                 showEgress={showEgress}
+                showRadiation={showRadiation}
+                radiationSegments={radiationSegments}
                 shape={config.shape}
                 selectedTool={selectedTool}
                 onSelectTool={setSelectedTool}
@@ -435,7 +448,7 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
                 <div className="glass rounded-xl px-4 py-2.5 flex items-center gap-3 max-w-lg">
                   <Info className="w-4 h-4 text-cyan-glow shrink-0" />
                   <span className="text-xs text-slate-300 flex-1">
-                    Drag zones · Click <span className="text-status-danger">red !</span> to highlight conflict · Enable <span className="text-cyan-glow">Egress</span> for A* routes · <span className="text-cyan-glow">Heatmap</span> for acoustic model
+                    Drag zones · Click <span className="text-status-danger">red !</span> to highlight conflict · Enable <span className="text-cyan-glow">Egress</span> for A* routes · <span className="text-cyan-glow">Heatmap</span> for acoustic model · <span className="text-status-warn">Radiation</span> for exterior exposure
                   </span>
                   <button onClick={() => setShowOnboarding(false)} className="text-slate-500 hover:text-slate-300 text-xs">
                     Got it
@@ -469,6 +482,7 @@ export default function EditorScreen({ config, initialZones, onGoHome, onGoCompa
                 </span>
               )}
               {showHeatmap && <span className="text-cyan-glow">HEATMAP (acoustic decay)</span>}
+              {showRadiation && <span className="text-status-warn">RADIATION (simplified shielding model)</span>}
               {highlightedZoneIds.size > 0 && <span className="text-cyan-glow">{highlightedZoneIds.size} highlighted</span>}
             </div>
             <span>Grid: {GRID_SIZE}px · Pathfinding: A* · Conflict: adjacency matrix</span>
